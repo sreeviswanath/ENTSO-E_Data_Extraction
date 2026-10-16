@@ -85,14 +85,10 @@ OUTAGE_FOLDER = (
     "UnavailabilityOfProductionAndGenerationUnits_15.1.A_B_C_D_r3.1/"
 )
 
+
 CAPACITY_FOLDER = (
     "/TP_export/"
-    "InstalledGenerationCapacityPerProductionUnit_14.1.B_r3.1/"
-)
-
-DISMANTLING_FOLDER = (
-    "/TP_export/"
-    "ExpansionAndDismantlingProjects_9.1_r3/"
+    "ProductionAndGenerationUnits_r3.1/"
 )
 
 
@@ -164,13 +160,6 @@ print("GETTING INSTALLED CAPACITY FILE LIST")
 print("=" * 70)
 
 capacity_items = list_all_fms_items(CAPACITY_FOLDER)
-
-
-print("\n" + "=" * 70)
-print("GETTING DISMANTLING FILE LIST")
-print("=" * 70)
-
-dismantling_items = list_all_fms_items(DISMANTLING_FOLDER)
 
 
 # =========================================================
@@ -403,7 +392,7 @@ print("DOWNLOADING INSTALLED CAPACITY")
 print("=" * 70)
 
 capacity_filename = (
-    "InstalledGenerationCapacityPerProductionUnit_14.1.B_r3.1.csv"
+    "ProductionAndGenerationUnits_r3.1.csv"
 )
 
 print(
@@ -427,7 +416,7 @@ print(
 
 capacity_output = os.path.join(
     OUTPUT_FOLDER,
-    "ENTSOE_Installed_Generation_Capacity_14.1.B.csv"
+    "ENTSOE_ProductionAndGenerationUnits_r3.1.csv"
 )
 
 capacity_df.to_csv(
@@ -439,54 +428,6 @@ print(
     f"\nInstalled capacity data saved to:\n"
     f"{capacity_output}"
 )
-
-
-# =========================================================
-# 15. DOWNLOAD 2025 DISMANTLING DATA
-# =========================================================
-
-print("\n" + "=" * 70)
-print("DOWNLOADING 2025 DISMANTLING DATA")
-print("=" * 70)
-
-dismantling_filename = (
-    "2025_ExpansionAndDismantlingProjects_9.1_r3.csv"
-)
-
-print(
-    f"Downloading:\n{dismantling_filename}"
-)
-
-dismantling_df = download_fms_csv(
-    DISMANTLING_FOLDER,
-    dismantling_filename
-)
-
-print(
-    f"2025 dismantling rows: "
-    f"{len(dismantling_df):,}"
-)
-
-
-# =========================================================
-# 16. SAVE 2025 DISMANTLING DATA
-# =========================================================
-
-dismantling_output = os.path.join(
-    OUTPUT_FOLDER,
-    "ENTSOE_2025_Expansion_Dismantling_9.1.csv"
-)
-
-dismantling_df.to_csv(
-    dismantling_output,
-    index=False
-)
-
-print(
-    f"\n2025 dismantling data saved to:\n"
-    f"{dismantling_output}"
-)
-
 
 # =========================================================
 # 17. PRINT DATASET INFORMATION
@@ -508,13 +449,6 @@ print(
     f"\nColumns : {len(capacity_df.columns)}"
 )
 
-print(
-    f"\n2025 Dismantling:"
-    f"\nRows    : {len(dismantling_df):,}"
-    f"\nColumns : {len(dismantling_df.columns)}"
-)
-
-
 # =========================================================
 # 18. PRINT COLUMNS
 # =========================================================
@@ -533,15 +467,6 @@ print("=" * 70)
 
 for col in capacity_df.columns:
     print(col)
-
-
-print("\n" + "=" * 70)
-print("2025 DISMANTLING COLUMNS")
-print("=" * 70)
-
-for col in dismantling_df.columns:
-    print(col)
-
 
 # =========================================================
 # 19. DISPLAY FIRST 5 ROWS
@@ -563,16 +488,6 @@ print("=" * 70)
 print(
     capacity_df.head()
 )
-
-
-print("\n" + "=" * 70)
-print("2025 DISMANTLING SAMPLE")
-print("=" * 70)
-
-print(
-    dismantling_df.head()
-)
-
 
 # =========================================================
 # 20. FINAL MESSAGE
@@ -596,9 +511,4 @@ print(
 print(
     "2.",
     os.path.basename(capacity_output)
-)
-
-print(
-    "3.",
-    os.path.basename(dismantling_output)
 )
