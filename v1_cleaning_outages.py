@@ -1,4 +1,9 @@
 import pandas as pd
+import os
+from pathlib import Path
+
+output_folder = Path("ENTSOE_Output")
+output_folder.mkdir(parents=True, exist_ok=True)
 
 # ===============================================
 # 1. Loading the data
@@ -51,8 +56,8 @@ df_outages = df_outages[(df_outages['Status'] == 'Active') &
 print("=========== Data filtered based on status = Active & AssetType = GENERATION & OldVersion = False & AreaTypeCode != CTA..... ==========")
 print("=========== No.of rows after filtering: ", len(df_outages))
 
-df_outages.to_csv("v1_cleaning_outages_filtered.csv", index=False)
-print("=======&&&&&& Filtered data saved to v1_cleaning_outages_filtered.csv before dropping missing values....&&&&&&=======")
+# df_outages.to_csv("v1_cleaning_outages_filtered.csv", index=False)
+# print("=======&&&&&& Filtered data saved to \"v1_cleaning_outages_filtered.csv\" before dropping missing values....&&&&&&=======")
 
 # Dropping rows with missing values in critical columns
 critical_columns = ['InstanceCode','Version','StartTimeSeries(UTC)', 'EndTimeSeries(UTC)','Status','AssetType','ProductionType']
@@ -89,8 +94,12 @@ df_outages = df_outages.drop(columns=["MaxVersion"])
 print("=========== Latest versions retained for each InstanceCode ==========")
 print("========== Rows after keeping latest versions:", len(df_outages))
 
-df_outages.to_csv("v1_cleaning_outages_cleaned.csv", index=False)   
-print("========&&&&&&& Cleaned data saved to v1_cleaning_outages_cleaned.csv before exploding &&&&&&=======")
+df_outages.to_csv(output_folder / "outages_cleaned.csv", index=False)
+print("========&&&&&&& Cleaned data saved to", output_folder / "outages_cleaned.csv", "before exploding &&&&&&=======")
+
+#################################################################################################################
+#################################################################################################################
+#################################################################################################################
 
 
 # Round StartTimeSeries and EndTimeSeries to the nearest hour
@@ -136,8 +145,6 @@ duplicates = df_hourly.duplicated(subset=["DateTime", "AssetCode"],keep=False)
 
 print("========= Duplicate asset-hour rows:", duplicates.sum())
 
-# df_hourly.to_csv("v1_cleaning_test_hourly.csv", index=False)
-
 # Resolve duplicate DateTime + AssetCode combinations
 # by keeping the minimum available capacity
 df_hourly = (
@@ -167,8 +174,8 @@ df_pivot = (
 
 print("========= Hourly outages capacity DataFrame created. ==========")
 # print(df_pivot.head())
-df_pivot.to_csv("v1_cleaning_test_hourly_pivoted.csv", index=False)
-print("=======&&&&& Pivoted hourly outages capacity DataFrame saved to v1_cleaning_test_hourly_pivoted.csv &&&&&=======")
+df_pivot.to_csv(output_folder / "pivoted_hourly_outages.csv", index=False)
+print("=======&&&&& Pivoted,hourly-outages capacity DataFrame saved to",output_folder/" pivoted_hourly_outages.csv &&&&&=======")
 
 #########################################################################################################################
 #########################################################################################################################
@@ -329,15 +336,13 @@ print("Remaining missing asset-hour values:",
 print("Original shape:", df_pivot.shape)
 print("Filled shape:", df_pivot_filled.shape)
 
-# Check a few rows
-print(df_pivot_filled.iloc[:5, :8])
-
 # Save the result
-df_pivot_filled.to_csv(
-    "v1_hourly_capacity_filled.csv",
-    index=False
-)
-print("========&&&&&&& Installed capacity Filled hourly data saved to v1_hourly_capacity_filled.csv &&&&&&=======")
+df_pivot_filled.to_csv(output_folder / "hourly_capacity_filled.csv", index=False)
+print("\n========&&&&&&& Installed-capacity filled hourly-data saved to",output_folder/"hourly_capacity_filled.csv &&&&&&=======")
+
+
+
+
 
 
 # Diagnosis
