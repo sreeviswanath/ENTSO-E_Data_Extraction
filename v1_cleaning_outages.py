@@ -179,7 +179,7 @@ print("=======&&&&& Pivoted hourly outages capacity DataFrame saved to v1_cleani
 # =========================================================
 
 # Load the installed-capacity / generation-unit mapping dataset
-df_units = pd.read_csv("ENTSOE_Export_Logs\ProductionAndGenerationUnits_r3.1.csv",sep="\t")
+df_units = pd.read_csv("ENTSOE_2025_Data\ENTSOE_ProductionAndGenerationUnits_r3.1.csv")
 
 
 print("===============& & & & & & & & &********************& & & & & & & & & & & & &***************")
