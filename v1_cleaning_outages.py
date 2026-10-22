@@ -1,5 +1,4 @@
 import pandas as pd
-import os
 from pathlib import Path
 
 output_folder = Path("ENTSOE_Output")
@@ -98,9 +97,6 @@ df_outages.to_csv(output_folder / "outages_cleaned.csv", index=False)
 print("========&&&&&&& Cleaned data saved to", output_folder / "outages_cleaned.csv", "before exploding &&&&&&=======")
 
 #################################################################################################################
-#################################################################################################################
-#################################################################################################################
-
 
 # Round StartTimeSeries and EndTimeSeries to the nearest hour
 df_outages["StartTimeSeries(UTC)"] = (df_outages["StartTimeSeries(UTC)"].dt.round("h"))
@@ -112,11 +108,9 @@ df_outages["EndTimeSeries(UTC)"] = (df_outages["EndTimeSeries(UTC)"].dt.round("h
 
 asset_mapping = (df_outages[["AssetCode", "AreaMapCode", "ProductionType"]].dropna().drop_duplicates())
 
-#=====================================================================================================
 #============================================   
 # 5. Exploding the data based on StartTimeSeries and EndTimeSeries
 #============================================
-#=====================================================================================================
 
 df_exploded = df_outages.copy()
 print("=========== Exploding the data based on StartTimeSeries and EndTimeSeries..... ==========")
@@ -178,8 +172,6 @@ df_pivot.to_csv(output_folder / "pivoted_hourly_outages.csv", index=False)
 print("=======&&&&& Pivoted,hourly-outages capacity DataFrame saved to",output_folder/" pivoted_hourly_outages.csv &&&&&=======")
 
 #########################################################################################################################
-#########################################################################################################################
-#########################################################################################################################
 
 # =========================================================
 # 6. Fill missing hourly capacity using installed capacity
@@ -188,38 +180,24 @@ print("=======&&&&& Pivoted,hourly-outages capacity DataFrame saved to",output_f
 # Load the installed-capacity / generation-unit mapping dataset
 df_units = pd.read_csv("ENTSOE_2025_Data\ENTSOE_ProductionAndGenerationUnits_r3.1.csv")
 
-
-print("===============& & & & & & & & &********************& & & & & & & & & & & & &***************")
-# print("Info about hourly outages capacity pivoted DataFrame with missing values:")
-# print(df_pivot.info())
-# print(df_pivot.head())
-# print("Info about installed-capacity / generation-unit mapping DataFrame:")
-# print(df_units.info())
-# print(df_units.head())
-print("===============& & & & & & & & &********************& & & & & & & & & & & & &***************")
-
-
 # Convert validity dates to UTC datetime
 date_cols = ["ValidityPeriodStart(UTC)","ValidityPeriodEnd(UTC)"]
 df_units[date_cols] = df_units[date_cols].apply(pd.to_datetime, errors="coerce", utc=True)
 
 # Keep BZN records and exclude cancelled units
 df_units = df_units[
-    (df_units["AreaTypeCode"] != "CTA") & (df_units["AreaMapCode"] != "DE_AT_LU") &
-    (
-        df_units["GenerationUnitStatus"]
-        .fillna("")
-        .str.upper() != "CANCELLED"
-    )
+    (df_units["AreaTypeCode"] != "CTA") & 
+    (df_units["AreaMapCode"] != "DE_AT_LU") &
+    (df_units["GenerationUnitStatus"].fillna("").str.upper() != "CANCELLED")
 ].copy()
 
 # Convert installed capacity to numeric
 df_units["GenerationUnitInstalledCapacity[MW]"] = pd.to_numeric(df_units["GenerationUnitInstalledCapacity[MW]"],errors="coerce")
 
 # Keep records with the required fields
-df_units = df_units.dropna(subset=["GenerationUnitCode","ValidityPeriodStart(UTC)","GenerationUnitInstalledCapacity[MW]"])
+df_units = df_units.dropna(subset=["GenerationUnitCode","GenerationUnitType","ValidityPeriodStart(UTC)","GenerationUnitInstalledCapacity[MW]"])
 
-##############################################################################################################################################
+######################################################################################################################################
 
 df_units_fill = df_units.copy()
 
@@ -235,7 +213,7 @@ df_units_fill.loc[
     mask_commissioned, "ValidityPeriodEnd(UTC)"
 ] = pd.Timestamp("2100-01-01", tz="UTC")
 
-
+ 
 # 2. DECOMMISSIONED: Fill blank end dates with their start dates
 mask_decommissioned = (
     status.eq("DECOMMISSIONED")
@@ -256,7 +234,7 @@ df_units_fill.loc[
 
 ######################################################################################################################################
 
-# Keep only units that have valid start and end timestamps
+# Keep only units that have validity start and end timestamps
 df_units_fill = df_units_fill.dropna(
     subset=["ValidityPeriodStart(UTC)", "ValidityPeriodEnd(UTC)"]
 ).copy()
@@ -266,11 +244,11 @@ end_date = df_pivot["DateTime"].max()
 
 # Keep units whose validity periods overlap the required date range
 df_units_fill = df_units_fill[
-    (df_units_fill["ValidityPeriodStart(UTC)"] <= end_date)
-    & (df_units_fill["ValidityPeriodEnd(UTC)"] >= start_date)
+    (df_units_fill["ValidityPeriodStart(UTC)"] < end_date)
+    & (df_units_fill["ValidityPeriodEnd(UTC)"] > start_date)
 ].copy()
 
-# Generate hourly timestamps for each unit
+# Generate hourly timestamps for each unit and exploding
 df_units_fill["Cap_Dates"] = df_units_fill.apply(
     lambda row: pd.date_range(
         start=max(row["ValidityPeriodStart(UTC)"], start_date),
@@ -340,110 +318,175 @@ print("Filled shape:", df_pivot_filled.shape)
 df_pivot_filled.to_csv(output_folder / "hourly_capacity_filled.csv", index=False)
 print("\n========&&&&&&& Installed-capacity filled hourly-data saved to",output_folder/"hourly_capacity_filled.csv &&&&&&=======")
 
+###################################################################################################################################################
+###################################################################################################################################################
+###################################################################################################################################################
+df_mapping = df_units_hourly[["GenerationUnitCode","Cap_Dates","AreaMapCode","GenerationUnitType"]].copy()
+df_mapping = df_mapping.rename(columns={"Cap_Dates": "DateTime"})
 
-
-
-
-
-# Diagnosis
-print("\n========= ************************ Diagnosis ******************** =========")
-# Count missing values for each asset
-missing_by_asset = df_pivot_filled.drop(
-    columns="DateTime"
-).isna().sum()
-
-missing_by_asset = missing_by_asset[missing_by_asset > 0].sort_values(
-    ascending=False
+df_hourly_long = df_pivot_filled.melt(
+    id_vars="DateTime",
+    var_name="GenerationUnitCode",
+    value_name="AvailableCapacity_MW"
 )
 
-print("Assets with remaining missing values:", len(missing_by_asset))
-print("\nTop 20 assets with missing values:")
-print(missing_by_asset.head(20))
-
-print("\nTotal missing values:", missing_by_asset.sum())
-
-# Assets with missing hourly values
-missing_assets = set(missing_by_asset.index)
-
-# Assets present in the installed-capacity mapping
-mapped_assets = set(df_units_hourly["GenerationUnitCode"].unique())
-
-print("Assets with missing values:", len(missing_assets))
-print("Missing-value assets with mapping:", len(missing_assets & mapped_assets))
-print("Missing-value assets without mapping:", len(missing_assets - mapped_assets))
-
-print("\nExamples without mapping:")
-print(list(missing_assets - mapped_assets)[:10])
+# Convert UTC timestamps to Amsterdam local time
+df_hourly_long["DateTime"] = (
+    pd.to_datetime(df_hourly_long["DateTime"], utc=True)
+    .dt.tz_convert("Europe/Amsterdam")
+)
 
 
-# # Inspect assets that still have missing hourly capacity
-# missing_assets = (
-#     df_pivot_filled.drop(columns="DateTime")
-#     .isna()
-#     .sum()
-#     .loc[lambda s: s > 0]
-#     .index
-# )
+df_hourly_long = (
+    df_pivot_filled
+    .melt(
+        id_vars="DateTime",
+        var_name="GenerationUnitCode",
+        value_name="AvailableCapacity_MW"
+    )
+    .merge(
+        df_mapping,
+        on=["GenerationUnitCode", "DateTime"],
+        how="left"
+    )
+)
 
-# mapping_summary = (
-#     df_units_fill[
-#         [
-#             "GenerationUnitCode",
-#             "GenerationUnitStatus",
-#             "ValidityPeriodStart(UTC)",
-#             "ValidityPeriodEnd(UTC)",
-#             "GenerationUnitInstalledCapacity[MW]"
-#         ]
-#     ]
-#     .drop_duplicates()
-# )
+df_hourly_long = df_hourly_long.dropna(
+    subset=["AreaMapCode", "GenerationUnitType"]
+)
 
-# mapping_summary = mapping_summary[
-#     mapping_summary["GenerationUnitCode"].isin(missing_assets)
-# ]
-
-# print(
-#     mapping_summary.sort_values(
-#         ["GenerationUnitCode", "ValidityPeriodStart(UTC)"]
-#     ).to_string(index=False)
-# )
+# print("Rows remaining:", len(df_hourly_long))
+# print("Missing area:", df_hourly_long["AreaMapCode"].isna().sum())
+# print("Missing fuel:", df_hourly_long["GenerationUnitType"].isna().sum())
 
 
+# Fuel mapping
+fuel_types = {
+    "Fossil Gas": "Gas",
+    "Fossil Hard coal": "Coal",
+    "Fossil Coal-derived gas": "Gas",
+    'Hydro Pumped Storage': 'Pump',
+    'Hydro Water Reservoir': 'Reservoir',
+    'Fossil Oil' : 'Oil',
+    'Fossil Brown coal/Lignite' : 'Lignite',
+    'Hydro Run-of-river and pondage': 'ROR',
+    'Nuclear' : 'Nuclear',
+    'Solar' : 'Solar',
+    'Other' : 'OtherRenewable',
+    'Biomass' : 'Biomass',
+    'Wind Offshore': 'WindOffshore',
+    'Wind Onshore': 'WindOnshore',
+    'Energy storage':'Storage',
+    'Fossil Oil shale':'Oil',
+    'Fossil Peat':'Coal',
+    'Waste':'Waste'
+}
 
-# asset = "15W-BHALPV--AE-8"
+df_hourly_long["GenerationUnitType"] = (df_hourly_long["GenerationUnitType"].replace(fuel_types))
 
-# # 1. Show all validity records for this asset
-# print("VALIDITY RECORDS")
-# print(
-#     df_units_fill.loc[
-#         df_units_fill["GenerationUnitCode"].eq(asset),
-#         [
-#             "GenerationUnitStatus",
-#             "ValidityPeriodStart(UTC)",
-#             "ValidityPeriodEnd(UTC)",
-#             "GenerationUnitInstalledCapacity[MW]"
-#         ]
-#     ].sort_values("ValidityPeriodStart(UTC)").to_string(index=False)
-# )
+# Zone mapping
+zone_map = {
+    "SE": ["SE1", "SE2", "SE3", "SE4", "SE"],
+    "IT": ["IT-CSOUTH", "IT-CNORTH", "IT-NORTH", "IT-SOUTH", "IT-Sardinia", "IT-Sicily", "IT-Calabria", "IT"],
+    "NO": ["NO1", "NO2", "NO3", "NO4", "NO5", "NO"],
+    "DK": ["DK1", "DK2"],
+    "DE": ["DE_LU"]
+}
 
-# # 2. Count missing hours by month
-# missing_hours = (
-#     df_pivot_filled.loc[
-#         df_pivot_filled[asset].isna(), "DateTime"
-#     ]
-#     .dt.month
-#     .value_counts()
-#     .sort_index()
-# )
+zone_lookup = {
+    zone: parent
+    for parent, zones in zone_map.items()
+    for zone in zones
+}
 
-# print("\nMISSING HOURS BY MONTH")
-# print(missing_hours)
+df_hourly_long["AreaMapCode"] = (df_hourly_long["AreaMapCode"].replace(zone_lookup))
 
-# asset = "15W-BHALPV--AE-8"
+# print(df_hourly_long[(df_hourly_long["AreaMapCode"] == "DE") & (df_hourly_long["GenerationUnitCode"]=="11WD4AL1U1C2---O")].head(30))
+df_hourly_long.to_csv("Testing_mean_of_24_hours.csv",index=False)
+print("========&&&&&&& Hourly capacity for assets saved to Testing_mean_of_24_hours.csv &&&&&=========")
+# print("Unique fuel types :- ",df_hourly_long["GenerationUnitType"].unique())
+# print("Unique area mapcodes :- ",df_hourly_long["AreaMapCode"].unique())
 
-# print(
-#     df_pivot.loc[
-#         df_pivot["DateTime"].dt.month.eq(1),
-#         ["DateTime", asset]
-#     ].head(24).to_string(index=False)
-# )
+# Convert UTC timestamps to Amsterdam local time
+df_hourly_long["DateTime"] = (
+    pd.to_datetime(df_hourly_long["DateTime"], utc=True)
+    .dt.tz_convert("Europe/Amsterdam")
+)
+
+# Convert timestamps to the start of each Amsterdam local day
+df_hourly_long["DateTime"] = ( df_hourly_long["DateTime"].dt.floor("D") )
+
+# Calculate daily average capacity for each asset
+df_daily_assets = (
+    df_hourly_long
+    .groupby(
+        ["GenerationUnitCode", "AreaMapCode", "DateTime", "GenerationUnitType"],
+        as_index=False
+    )["AvailableCapacity_MW"]
+    .mean()
+)
+
+
+# specific asset,specific date hourly to daily check
+# print("\n******* Testing hourly to daily conversion ! ******\n")
+# asset = "11WD4AL1U1C2---O"
+
+# df_check = df_hourly_long[
+#     (df_hourly_long["GenerationUnitCode"] == asset) & 
+#     (df_hourly_long["DateTime"].dt.tz_convert("Europe/Amsterdam").dt.date == pd.Timestamp("2025-01-09").date())
+# ].copy()
+
+# print(df_check[["DateTime", "AvailableCapacity_MW", "AreaMapCode", "GenerationUnitType"]].sort_values("DateTime").to_string(index=False))
+
+# print("\nNumber of rows:", len(df_check))
+# print("Sum of capacity:", df_check["AvailableCapacity_MW"].sum())
+# print("Mean capacity:", df_check["AvailableCapacity_MW"].mean())
+# print("Missing capacity values:", df_check["AvailableCapacity_MW"].isna().sum())
+# print(df_daily_assets[(df_daily_assets["AreaMapCode"] == "DE") & (df_daily_assets["GenerationUnitCode"]=="11WD4AL1U1C2---O")].head(15))
+
+df_daily_assets.to_csv("Testing_daily_cap_per_asset.csv",index=False)
+print("========&&&&&&& Daily capacity for assets saved to Testing_daily_cap_per_asset.csv &&&&&=========")
+
+##############################################################################################################################################################
+##############################################################################################################################################################
+##############################################################################################################################################################
+
+# Aggregating daily capacity based on area and fuel type 
+
+df_daily_grouped = (df_daily_assets.groupby(["AreaMapCode", "DateTime", "GenerationUnitType"],as_index=False)["AvailableCapacity_MW"]
+    .sum(min_count=1).round())
+
+# Area_fuel column creation
+
+df_daily_grouped["Area_Fuel"] = (df_daily_grouped["GenerationUnitType"]+ "_" + df_daily_grouped["AreaMapCode"])
+
+# Pivoting to final format
+
+df_final = (
+    df_daily_grouped
+    .pivot(
+        index="DateTime",
+        columns="Area_Fuel",
+        values="AvailableCapacity_MW"
+    )
+    .reset_index()
+)
+
+df_final.columns.name = None
+
+df_final.columns.name = None
+
+df_final = df_final[
+    ["DateTime"] +
+    sorted(
+        [col for col in df_final.columns if col != "DateTime"],
+        key=lambda col: col.split("_")[-1]
+    )
+]
+
+print(df_final.head())
+print("Shape:", df_final.shape)
+print("Date range:", df_final["DateTime"].min(), "to", df_final["DateTime"].max())
+
+df_final.to_csv(output_folder/"ENTSOE_2025_Daily_Area_Fuel_Capacity.csv",index=False)
+print("======&&&&&& Daily capacity for area per fuel type saved to ENTSOE_2025_Daily_Area_Fuel_Capacity.csv &&&&&&======")
