@@ -92,7 +92,7 @@ df_outages = df_outages.drop(columns=["MaxVersion"])
 
 print("=========== Latest versions retained for each InstanceCode ==========")
 print("========== Rows after keeping latest versions:", len(df_outages))
-
+print(df_outages.head())
 df_outages.to_csv(output_folder / "outages_cleaned.csv", index=False)
 print("========&&&&&&& Cleaned data saved to", output_folder / "outages_cleaned.csv", "before exploding &&&&&&=======")
 
@@ -179,7 +179,7 @@ print("=======&&&&& Pivoted,hourly-outages capacity DataFrame saved to",output_f
 
 # Load the installed-capacity / generation-unit mapping dataset
 df_units = pd.read_csv("ENTSOE_2025_Data\ENTSOE_ProductionAndGenerationUnits_r3.1.csv")
-
+print(df_units.head())
 # Convert validity dates to UTC datetime
 date_cols = ["ValidityPeriodStart(UTC)","ValidityPeriodEnd(UTC)"]
 df_units[date_cols] = df_units[date_cols].apply(pd.to_datetime, errors="coerce", utc=True)
@@ -305,14 +305,14 @@ for asset in df_pivot_filled.columns:
 df_pivot_filled = df_pivot_filled.reset_index()
 df_pivot_filled = df_pivot_filled.copy()
 
-print("Hourly capacity shape:", df_pivot_filled.shape)
-print("Missing values filled:", filled_cells)
-print("Remaining missing asset-hour values:",
-      df_pivot_filled.drop(columns="DateTime").isna().sum().sum())
+# print("Hourly capacity shape:", df_pivot_filled.shape)
+# print("Missing values filled:", filled_cells)
+# print("Remaining missing asset-hour values:",
+#       df_pivot_filled.drop(columns="DateTime").isna().sum().sum())
 
-# Confirm the original pivot was not modified
-print("Original shape:", df_pivot.shape)
-print("Filled shape:", df_pivot_filled.shape)
+# # Confirm the original pivot was not modified
+# print("Original shape:", df_pivot.shape)
+# print("Filled shape:", df_pivot_filled.shape)
 
 # Save the result
 df_pivot_filled.to_csv(output_folder / "hourly_capacity_filled.csv", index=False)
@@ -321,22 +321,19 @@ print("\n========&&&&&&& Installed-capacity filled hourly-data saved to",output_
 ###################################################################################################################################################
 ###################################################################################################################################################
 ###################################################################################################################################################
+
 df_mapping = df_units_hourly[["GenerationUnitCode","Cap_Dates","AreaMapCode","GenerationUnitType"]].copy()
 df_mapping = df_mapping.rename(columns={"Cap_Dates": "DateTime"})
 
-df_hourly_long = df_pivot_filled.melt(
-    id_vars="DateTime",
-    var_name="GenerationUnitCode",
-    value_name="AvailableCapacity_MW"
+# Ensure both DataFrames use matching UTC timestamps before merging
+df_pivot_filled["DateTime"] = pd.to_datetime(
+    df_pivot_filled["DateTime"], utc=True
+)
+df_mapping["DateTime"] = pd.to_datetime(
+    df_mapping["DateTime"], utc=True
 )
 
-# Convert UTC timestamps to Amsterdam local time
-df_hourly_long["DateTime"] = (
-    pd.to_datetime(df_hourly_long["DateTime"], utc=True)
-    .dt.tz_convert("Europe/Amsterdam")
-)
-
-
+# 2. Convert the hourly wide-format data to long format and merge
 df_hourly_long = (
     df_pivot_filled
     .melt(
@@ -353,11 +350,7 @@ df_hourly_long = (
 
 df_hourly_long = df_hourly_long.dropna(
     subset=["AreaMapCode", "GenerationUnitType"]
-)
-
-# print("Rows remaining:", len(df_hourly_long))
-# print("Missing area:", df_hourly_long["AreaMapCode"].isna().sum())
-# print("Missing fuel:", df_hourly_long["GenerationUnitType"].isna().sum())
+).copy()
 
 
 # Fuel mapping
@@ -401,17 +394,18 @@ zone_lookup = {
 
 df_hourly_long["AreaMapCode"] = (df_hourly_long["AreaMapCode"].replace(zone_lookup))
 
+
+# Convert UTC timestamps to Amsterdam local time
+df_hourly_long["DateTime"] = (
+    df_hourly_long["DateTime"].dt.tz_convert("Europe/Amsterdam")
+)
+
 # print(df_hourly_long[(df_hourly_long["AreaMapCode"] == "DE") & (df_hourly_long["GenerationUnitCode"]=="11WD4AL1U1C2---O")].head(30))
 df_hourly_long.to_csv("Testing_mean_of_24_hours.csv",index=False)
 print("========&&&&&&& Hourly capacity for assets saved to Testing_mean_of_24_hours.csv &&&&&=========")
 # print("Unique fuel types :- ",df_hourly_long["GenerationUnitType"].unique())
 # print("Unique area mapcodes :- ",df_hourly_long["AreaMapCode"].unique())
 
-# Convert UTC timestamps to Amsterdam local time
-df_hourly_long["DateTime"] = (
-    pd.to_datetime(df_hourly_long["DateTime"], utc=True)
-    .dt.tz_convert("Europe/Amsterdam")
-)
 
 # Convert timestamps to the start of each Amsterdam local day
 df_hourly_long["DateTime"] = ( df_hourly_long["DateTime"].dt.floor("D") )
@@ -426,8 +420,7 @@ df_daily_assets = (
     .mean()
 )
 
-
-# specific asset,specific date hourly to daily check
+# To check specific asset,specific date hourly to daily capacity change
 # print("\n******* Testing hourly to daily conversion ! ******\n")
 # asset = "11WD4AL1U1C2---O"
 
@@ -474,8 +467,6 @@ df_final = (
 
 df_final.columns.name = None
 
-df_final.columns.name = None
-
 df_final = df_final[
     ["DateTime"] +
     sorted(
@@ -485,8 +476,261 @@ df_final = df_final[
 ]
 
 print(df_final.head())
-print("Shape:", df_final.shape)
 print("Date range:", df_final["DateTime"].min(), "to", df_final["DateTime"].max())
 
 df_final.to_csv(output_folder/"ENTSOE_2025_Daily_Area_Fuel_Capacity.csv",index=False)
-print("======&&&&&& Daily capacity for area per fuel type saved to ENTSOE_2025_Daily_Area_Fuel_Capacity.csv &&&&&&======")
+print("\n======&&&&&& Daily capacity for area per fuel type saved to ENTSOE_2025_Daily_Area_Fuel_Capacity.csv &&&&&&======\n")
+
+###########################################################################################################################
+###########################################################################################################################
+###########################################################################################################################
+
+# 1. Available capacity: wide to long
+df_available = df_final.melt(
+    id_vars="DateTime",
+    var_name="Fuel_Area",
+    value_name="AvailableCapacity_MW"
+)
+
+df_available[["GenerationUnitType", "AreaMapCode"]] = (
+    df_available["Fuel_Area"].str.rsplit("_", n=1, expand=True)
+)
+df_available["DateTime"] = pd.to_datetime(df_available["DateTime"]).dt.date
+
+
+# 2. Daily installed capacity from existing hourly data
+df_installed_daily = df_units_hourly.copy()
+
+df_installed_daily["DateTime"] = (
+    pd.to_datetime(df_installed_daily["Cap_Dates"], utc=True)
+    .dt.tz_convert("Europe/Amsterdam")
+    .dt.date
+)
+
+# Apply the SAME fuel mapping
+df_installed_daily["GenerationUnitType"] = (
+    df_installed_daily["GenerationUnitType"].replace(fuel_types)
+)
+
+# Apply the SAME zone mapping
+df_installed_daily["AreaMapCode"] = (
+    df_installed_daily["AreaMapCode"].replace(zone_lookup)
+)
+
+# Aggregate installed capacity by date, area and renamed fuel
+df_installed_daily = (
+    df_installed_daily
+    .groupby(
+        ["DateTime", "AreaMapCode", "GenerationUnitType"],
+        as_index=False
+    )["GenerationUnitInstalledCapacity[MW]"]
+    .sum(min_count=1)
+    .rename(columns={
+        "GenerationUnitInstalledCapacity[MW]": "InstalledCapacity_MW"
+    })
+)
+print("========= Calculated total daily installed capacity per fuel/area ========")
+print(df_installed_daily.head(10))
+df_installed_daily.to_csv("Total_installed_cap_test.csv",index=False)
+
+# 3. Merge and calculate AF
+df_af = df_available.merge(
+    df_installed_daily,
+    on=["DateTime", "AreaMapCode", "GenerationUnitType"],
+    how="left"
+)
+
+df_af["AF_Percent"] = (
+    df_af["AvailableCapacity_MW"]
+    .div(df_af["InstalledCapacity_MW"].where(df_af["InstalledCapacity_MW"] > 0))
+    .mul(100).round(2)
+)
+
+
+# 4. Pivot back to df_final format
+df_af_final = (
+    df_af.assign(Fuel_Area=df_af["GenerationUnitType"] + "_" + df_af["AreaMapCode"])
+    .pivot(index="DateTime", columns="Fuel_Area", values="AF_Percent")
+    .reset_index()
+)
+
+df_af_final.columns.name = None
+df_af_final = df_af_final[
+    ["DateTime"] + sorted(
+        [c for c in df_af_final.columns if c != "DateTime"],
+        key=lambda c: c.rsplit("_", 1)[1]
+    )
+]
+
+
+df_af_final.to_csv(
+    output_folder / "ENTSOE_2025_Daily_Availability_Factor.csv",
+    index=False
+)
+print("\n======&&&&& Availability Factor saved to ENTSOE_2025_Daily_Availability_Factor.csv\n")
+print(df_af_final.head())
+print("Final AF shape:", df_af_final.shape)
+
+# df_available = df_final.copy()
+# # Convert daily available capacity from wide to long format
+# df_available = df_available.melt(
+#     id_vars="DateTime",
+#     var_name="Fuel_Area",
+#     value_name="AvailableCapacity_MW"
+# )
+
+# # Split column name into fuel type and area code
+# df_available[["GenerationUnitType", "AreaMapCode"]] = (
+#     df_available["Fuel_Area"].str.rsplit("_", n=1, expand=True)
+# )
+
+# df_available["DateTime"] = pd.to_datetime(
+#     df_available["DateTime"]
+# ).dt.date
+
+
+# # Select the required installed-capacity columns
+# df_installed = df_units[
+#     [
+#         "GenerationUnitCode",
+#         "GenerationUnitInstalledCapacity[MW]",
+#         "AreaMapCode",
+#         "GenerationUnitType",
+#         "ValidityPeriodStart(UTC)",
+#         "ValidityPeriodEnd(UTC)"
+#     ]
+# ].copy()
+
+# # Convert validity dates to Amsterdam local dates
+# for col in ["ValidityPeriodStart(UTC)", "ValidityPeriodEnd(UTC)"]:
+#     df_installed[col] = (
+#         pd.to_datetime(df_installed[col], utc=True)
+#         .dt.tz_convert("Europe/Amsterdam")
+#         .dt.date
+#     )
+
+# # Keep records that overlap 2025
+# year_start = pd.Timestamp("2025-01-01").date()
+# year_end = pd.Timestamp("2025-12-31").date()
+
+# df_installed = df_installed[
+#     (df_installed["ValidityPeriodStart(UTC)"] <= year_end) &
+#     (
+#         df_installed["ValidityPeriodEnd(UTC)"].isna() |
+#         (df_installed["ValidityPeriodEnd(UTC)"] >= year_start)
+#     )
+# ].copy()
+
+# # Restrict validity dates to 2025
+# df_installed["StartDate"] = df_installed[
+#     "ValidityPeriodStart(UTC)"
+# ].apply(lambda x: max(x, year_start))
+
+# df_installed["EndDate"] = df_installed[
+#     "ValidityPeriodEnd(UTC)"
+# ].apply(
+#     lambda x: year_end if pd.isna(x) else min(x, year_end)
+# )
+
+# # Create one record per unit per valid day
+# df_installed["DateTime"] = df_installed.apply(
+#     lambda row: pd.date_range(
+#         start=row["StartDate"],
+#         end=row["EndDate"],
+#         freq="D"
+#     ).date,
+#     axis=1
+# )
+
+# df_installed_daily = df_installed.explode("DateTime")
+
+# # Rename capacity column
+# df_installed_daily = df_installed_daily.rename(
+#     columns={
+#         "GenerationUnitInstalledCapacity[MW]": "InstalledCapacity_MW"
+#     }
+# )
+
+# # Aggregate installed capacity by date, area and fuel
+# df_installed_daily = (
+#     df_installed_daily
+#     .groupby(
+#         ["DateTime", "AreaMapCode", "GenerationUnitType"],
+#         as_index=False
+#     )["InstalledCapacity_MW"]
+#     .sum(min_count=1)
+# )
+
+# print(df_installed_daily.head())
+
+
+
+
+# # Merge available and installed capacity
+# df_af = df_available.merge(
+#     df_installed_daily,
+#     on=["DateTime", "AreaMapCode", "GenerationUnitType"],
+#     how="left"
+# )
+
+# # Calculate availability factor (%)
+# df_af["AF_Percent"] = (
+#     df_af["AvailableCapacity_MW"]
+#     .div(df_af["InstalledCapacity_MW"].where(
+#         df_af["InstalledCapacity_MW"] > 0
+#     ))
+#     .mul(100)
+# )
+
+# # Round results
+# df_af["AF_Percent"] = df_af["AF_Percent"].round(2)
+
+# # Arrange columns
+# df_af = df_af[
+#     [
+#         "DateTime",
+#         "AreaMapCode",
+#         "GenerationUnitType",
+#         "AvailableCapacity_MW",
+#         "InstalledCapacity_MW",
+#         "AF_Percent"
+#     ]
+# ].sort_values(
+#     ["AreaMapCode", "GenerationUnitType", "DateTime"]
+# )
+
+# # Create column names in Fuel_Area format
+# df_af["Fuel_Area"] = (
+#     df_af["GenerationUnitType"] + "_" + df_af["AreaMapCode"]
+# )
+
+# # Pivot AF values into wide format
+# df_af_final = (
+#     df_af.pivot(
+#         index="DateTime",
+#         columns="Fuel_Area",
+#         values="AF_Percent"
+#     )
+#     .reset_index()
+# )
+
+# # Remove columns index name
+# df_af_final.columns.name = None
+
+# # Sort columns by area code
+# df_af_final = df_af_final[
+#     ["DateTime"] +
+#     sorted(
+#         [col for col in df_af_final.columns if col != "DateTime"],
+#         key=lambda col: col.rsplit("_", 1)[1]
+#     )
+# ]
+
+# # Save output
+# df_af_final.to_csv(
+#     output_folder / "ENTSOE_2025_Daily_Availability_Factor.csv",
+#     index=False
+# )
+
+# print(df_af_final.head())
+# print("Final AF shape:", df_af_final.shape)
